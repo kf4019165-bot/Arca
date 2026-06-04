@@ -1,0 +1,785 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>АРКА — Лазерное 3D-сканирование</title>
+
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+
+  <!-- Tailwind конфигурация -->
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            brand: {
+              50: '#ecfdf5',
+              100: '#d1fae5',
+              200: '#a7f3d0',
+              300: '#6ee7b7',
+              400: '#34d399',
+              500: '#10b981',
+              600: '#059669',
+              700: '#047857',
+              800: '#065f46',
+              900: '#064e3b',
+            },
+            dark: {
+              50: '#f8fafc',
+              100: '#f1f5f9',
+              200: '#e2e8f0',
+              300: '#cbd5e1',
+              400: '#94a3b8',
+              500: '#64748b',
+              600: '#475569',
+              700: '#334155',
+              800: '#1e293b',
+              850: '#172033',
+              900: '#0f172a',
+              950: '#020617',
+            }
+          },
+          fontFamily: {
+            'inter': ['Inter', 'system-ui', 'sans-serif'],
+          },
+          animation: {
+            'fade-in': 'fadeIn 0.7s ease-out',
+            'slide-up': 'slideUp 0.7s ease-out',
+            'float': 'float 6s ease-in-out infinite',
+          },
+          keyframes: {
+            fadeIn: {
+              '0%': { opacity: '0' },
+              '100%': { opacity: '1' },
+            },
+            slideUp: {
+              '0%': { opacity: '0', transform: 'translateY(30px)' },
+              '100%': { opacity: '1', transform: 'translateY(0)' },
+            },
+            float: {
+              '0%, 100%': { transform: 'translateY(0px)' },
+              '50%': { transform: 'translateY(-20px)' },
+            },
+          },
+        }
+      }
+    }
+  </script>
+
+  <!-- Подключаем шрифт Inter -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
+
+  <!-- DXF парсер -->
+  <script src="https://cdn.jsdelivr.net/npm/dxf-parser@1.1.2/dist/dxf-parser.min.js"></script>
+
+  <style>
+    * {
+      scroll-behavior: smooth;
+    }
+
+    body {
+      font-family: 'Inter', system-ui, sans-serif;
+      background-color: #0f172a;
+    }
+
+    /* Стилизация скроллбара */
+    ::-webkit-scrollbar {
+      width: 8px;
+    }
+    ::-webkit-scrollbar-track {
+      background: #1e293b;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: #475569;
+      border-radius: 4px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: #64748b;
+    }
+
+    /* Стили для канваса калькулятора */
+    #dxf-canvas {
+      border: 1px solid #334155;
+      max-width: 100%;
+      height: auto;
+      background: #1e293b;
+      cursor: crosshair;
+      border-radius: 12px;
+    }
+
+    .station-marker {
+      position: absolute;
+      width: 14px;
+      height: 14px;
+      background: #10b981;
+      border: 2px solid white;
+      border-radius: 50%;
+      transform: translate(-50%, -50%);
+      pointer-events: none;
+      box-shadow: 0 0 10px rgba(16, 185, 129, 0.5);
+      z-index: 10;
+      transition: transform 0.2s;
+    }
+
+    .station-marker:hover {
+      transform: translate(-50%, -50%) scale(1.3);
+    }
+
+    .canvas-container {
+      position: relative;
+      display: inline-block;
+    }
+
+    /* Градиентные эффекты */
+    .gradient-text {
+      background: linear-gradient(135deg, #10b981 0%, #34d399 50%, #6ee7b7 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+
+    .glass-effect {
+      background: rgba(30, 41, 59, 0.8);
+      backdrop-filter: blur(10px);
+      border: 1px solid rgba(51, 65, 85, 0.5);
+    }
+
+    /* Анимации для карточек */
+    .card-hover {
+      transition: all 0.3s ease;
+    }
+    .card-hover:hover {
+      transform: translateY(-5px);
+      box-shadow: 0 20px 40px rgba(0, 0, 0, 0.3);
+    }
+
+    /* Пульсирующая точка */
+    .pulse-dot {
+      width: 12px;
+      height: 12px;
+      background: #10b981;
+      border-radius: 50%;
+      animation: pulse 2s infinite;
+    }
+    @keyframes pulse {
+      0% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7); }
+      70% { box-shadow: 0 0 0 10px rgba(16, 185, 129, 0); }
+      100% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
+    }
+  </style>
+</head>
+<body class="text-dark-200">
+
+  <!-- Навигация -->
+  <nav id="navbar" class="fixed top-0 left-0 right-0 z-50 transition-all duration-300">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+      <div class="flex items-center justify-between h-16">
+        <!-- Логотип -->
+        <a href="#" class="flex items-center gap-2">
+          <div class="w-8 h-8 bg-brand-500 rounded-lg flex items-center justify-center">
+            <svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l5.447-2.724A1 1 0 0021 16.382V5.618a1 1 0 00-.447-.894L15 7m0 10V7m0 0L9 4"></path>
+            </svg>
+          </div>
+          <span class="text-xl font-bold text-white tracking-tight">АРКА</span>
+        </a>
+
+        <!-- Десктопное меню -->
+        <div class="hidden md:flex items-center gap-8">
+          <a href="#services" class="text-dark-300 hover:text-white transition-colors text-sm font-medium">Услуги</a>
+          <a href="#portfolio" class="text-dark-300 hover:text-white transition-colors text-sm font-medium">Портфолио</a>
+          <a href="#calculator" class="text-dark-300 hover:text-white transition-colors text-sm font-medium">Калькулятор</a>
+          <a href="#contacts" class="text-dark-300 hover:text-white transition-colors text-sm font-medium">Контакты</a>
+          <a href="tel:+79991234567" class="bg-brand-500 hover:bg-brand-600 text-white px-5 py-2.5 rounded-lg text-sm font-semibold transition-colors">
+            Позвонить
+          </a>
+        </div>
+
+        <!-- Мобильная кнопка -->
+        <button id="mobileMenuBtn" class="md:hidden text-white p-2">
+          <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"></path>
+          </svg>
+        </button>
+      </div>
+    </div>
+
+    <!-- Мобильное меню -->
+    <div id="mobileMenu" class="hidden md:hidden glass-effect border-b border-dark-700">
+      <div class="px-4 py-4 space-y-3">
+        <a href="#services" class="block text-dark-300 hover:text-white py-2 text-sm font-medium">Услуги</a>
+        <a href="#portfolio" class="block text-dark-300 hover:text-white py-2 text-sm font-medium">Портфолио</a>
+        <a href="#calculator" class="block text-dark-300 hover:text-white py-2 text-sm font-medium">Калькулятор</a>
+        <a href="#contacts" class="block text-dark-300 hover:text-white py-2 text-sm font-medium">Контакты</a>
+        <a href="tel:+79991234567" class="block w-full text-center bg-brand-500 text-white py-2.5 rounded-lg text-sm font-semibold">Позвонить</a>
+      </div>
+    </div>
+  </nav>
+
+  <!-- Главный экран (Hero) -->
+  <section class="relative min-h-screen flex items-center justify-center overflow-hidden pt-16">
+    <!-- Фоновое изображение (замените на своё) -->
+    <div class="absolute inset-0 z-0">
+      <div class="absolute inset-0 bg-gradient-to-b from-dark-900/70 via-dark-900/80 to-dark-900 z-10"></div>
+      <!-- Заглушка вместо реального фото -->
+      <div class="w-full h-full bg-[url('data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 800"><rect fill="%231e293b" width="1200" height="800"/><circle cx="300" cy="200" r="150" fill="%23334155" opacity="0.3"/><circle cx="900" cy="500" r="200" fill="%23334155" opacity="0.2"/><rect x="100" y="400" width="400" height="300" fill="%23334155" opacity="0.15" rx="20"/><rect x="700" y="200" width="300" height="200" fill="%23334155" opacity="0.2" rx="15"/></svg>')] bg-cover bg-center"></div>
+    </div>
+
+    <div class="relative z-10 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center py-20">
+      <div class="animate-fade-in">
+        <!-- Бейдж -->
+        <div class="inline-flex items-center gap-2 bg-brand-500/10 border border-brand-500/20 rounded-full px-4 py-2 mb-8">
+          <div class="pulse-dot"></div>
+          <span class="text-brand-400 text-sm font-medium">Работаем в Краснодарском крае и Адыгее</span>
+        </div>
+
+        <h1 class="text-4xl sm:text-5xl md:text-7xl font-black text-white tracking-tight leading-tight mb-6">
+          Точное <span class="gradient-text">лазерное 3D-сканирование</span>
+        </h1>
+
+        <p class="text-lg sm:text-xl text-dark-300 max-w-3xl mx-auto mb-10 leading-relaxed">
+          Создаём цифровые двойники зданий и сооружений. Облака точек, BIM-модели, обмерные чертежи — быстро, точно, с гарантией качества.
+        </p>
+
+        <div class="flex flex-col sm:flex-row gap-4 justify-center">
+          <a href="#calculator" class="bg-brand-500 hover:bg-brand-600 text-white px-8 py-4 rounded-xl text-lg font-semibold transition-all card-hover">
+            Рассчитать стоимость
+          </a>
+          <a href="#services" class="border border-dark-500 hover:border-white text-white px-8 py-4 rounded-xl text-lg font-semibold transition-all card-hover">
+            Наши услуги
+          </a>
+        </div>
+
+        <!-- Статистика -->
+        <div class="grid grid-cols-2 md:grid-cols-3 gap-6 mt-16 animate-slide-up max-w-3xl mx-auto">
+          <div class="glass-effect rounded-2xl p-6">
+            <div class="text-3xl font-bold text-white mb-1">500+</div>
+            <div class="text-dark-400 text-sm">Объектов отсканировано</div>
+          </div>
+          <div class="glass-effect rounded-2xl p-6">
+            <div class="text-3xl font-bold text-white mb-1">7 лет</div>
+            <div class="text-dark-400 text-sm">Опыта в геодезии</div>
+          </div>
+          <div class="glass-effect rounded-2xl p-6">
+            <div class="text-3xl font-bold text-white mb-1">±2 мм</div>
+            <div class="text-dark-400 text-sm">Точность сканирования</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Скролл-индикатор -->
+    <div class="absolute bottom-8 left-1/2 -translate-x-1/2 z-10 animate-float">
+      <svg class="w-6 h-6 text-dark-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 14l-7 7m0 0l-7-7m7 7V3"></path>
+      </svg>
+    </div>
+  </section>
+
+  <!-- Услуги -->
+  <section id="services" class="py-20 bg-dark-900">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+      <div class="text-center mb-16">
+        <span class="text-brand-400 font-semibold text-sm uppercase tracking-wider">Что мы делаем</span>
+        <h2 class="text-3xl sm:text-4xl font-bold text-white mt-2 mb-4">Услуги лазерного сканирования</h2>
+        <p class="text-dark-400 max-w-2xl mx-auto">Полный цикл: от съёмки до готовой BIM-модели</p>
+      </div>
+
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-8">
+        <!-- Карточка 1 -->
+        <div class="bg-dark-800 rounded-2xl p-8 border border-dark-700 card-hover">
+          <div class="w-14 h-14 bg-brand-500/10 rounded-xl flex items-center justify-center mb-6">
+            <svg class="w-7 h-7 text-brand-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l5.447-2.724A1 1 0 0021 16.382V5.618a1 1 0 00-.447-.894L15 7m0 10V7"></path>
+            </svg>
+          </div>
+          <h3 class="text-xl font-bold text-white mb-3">3D-сканирование зданий</h3>
+          <p class="text-dark-400 mb-4">Высокоточное сканирование зданий и сооружений любой сложности. Облако точек высокой плотности.</p>
+          <ul class="text-dark-300 text-sm space-y-2 mb-6">
+            <li class="flex items-center gap-2"><span class="text-brand-400">✓</span> Точность до 2 мм</li>
+            <li class="flex items-center gap-2"><span class="text-brand-400">✓</span> Сканирование 360°</li>
+            <li class="flex items-center gap-2"><span class="text-brand-400">✓</span> Цветное облако точек</li>
+          </ul>
+          <a href="#calculator" class="text-brand-400 font-semibold text-sm hover:underline">Рассчитать →</a>
+        </div>
+
+        <!-- Карточка 2 -->
+        <div class="bg-dark-800 rounded-2xl p-8 border border-dark-700 card-hover">
+          <div class="w-14 h-14 bg-brand-500/10 rounded-xl flex items-center justify-center mb-6">
+            <svg class="w-7 h-7 text-brand-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"></path>
+            </svg>
+          </div>
+          <h3 class="text-xl font-bold text-white mb-3">BIM-моделирование</h3>
+          <p class="text-dark-400 mb-4">Создание информационных моделей зданий на основе облака точек. Revit, ArchiCAD, AutoCAD.</p>
+          <ul class="text-dark-300 text-sm space-y-2 mb-6">
+            <li class="flex items-center gap-2"><span class="text-brand-400">✓</span> LOD 300-400</li>
+            <li class="flex items-center gap-2"><span class="text-brand-400">✓</span> Все метрики и спецификации</li>
+            <li class="flex items-center gap-2"><span class="text-brand-400">✓</span> Интеграция с инженерными сетями</li>
+          </ul>
+          <a href="#calculator" class="text-brand-400 font-semibold text-sm hover:underline">Рассчитать →</a>
+        </div>
+
+        <!-- Карточка 3 -->
+        <div class="bg-dark-800 rounded-2xl p-8 border border-dark-700 card-hover">
+          <div class="w-14 h-14 bg-brand-500/10 rounded-xl flex items-center justify-center mb-6">
+            <svg class="w-7 h-7 text-brand-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
+            </svg>
+          </div>
+          <h3 class="text-xl font-bold text-white mb-3">Обмерные чертежи</h3>
+          <p class="text-dark-400 mb-4">Точные поэтажные планы, разрезы, фасады на основе данных лазерного сканирования.</p>
+          <ul class="text-dark-300 text-sm space-y-2 mb-6">
+            <li class="flex items-center gap-2"><span class="text-brand-400">✓</span> Поэтажные планы</li>
+            <li class="flex items-center gap-2"><span class="text-brand-400">✓</span> Разрезы и фасады</li>
+            <li class="flex items-center gap-2"><span class="text-brand-400">✓</span> Ведомости отделки</li>
+          </ul>
+          <a href="#calculator" class="text-brand-400 font-semibold text-sm hover:underline">Рассчитать →</a>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Калькулятор -->
+  <section id="calculator" class="py-20 bg-dark-950">
+    <div class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
+      <div class="text-center mb-12">
+        <span class="text-brand-400 font-semibold text-sm uppercase tracking-wider">Калькулятор</span>
+        <h2 class="text-3xl sm:text-4xl font-bold text-white mt-2 mb-4">Рассчитайте стоимость сканирования</h2>
+        <p class="text-dark-400 max-w-2xl mx-auto">Загрузите план в формате DXF для автоматического расчёта</p>
+      </div>
+
+      <!-- Загрузка DXF -->
+      <div class="bg-dark-800 rounded-2xl p-6 border border-dark-700 mb-6">
+        <div class="flex flex-col sm:flex-row gap-4 mb-6">
+          <div class="flex-1">
+            <label class="block text-sm text-dark-300 mb-2">Загрузите DXF-файл плана</label>
+            <input type="file" id="dxfFileInput" accept=".dxf" class="block w-full text-sm text-dark-400 file:mr-4 file:py-2.5 file:px-5 file:rounded-lg file:border-0 file:bg-brand-600 file:text-white hover:file:bg-brand-500 file:font-semibold file:cursor-pointer">
+            <p class="text-xs text-dark-500 mt-2">Поддерживаются 2D-чертежи с линиями и полилиниями</p>
+          </div>
+          <div>
+            <label class="block text-sm text-dark-300 mb-2">Шаг сетки (мм)</label>
+            <input type="number" id="gridStep" value="10000" class="bg-dark-700 border border-dark-600 rounded-lg p-3 text-white w-40 focus:ring-2 focus:ring-brand-500 focus:border-transparent outline-none">
+            <p class="text-xs text-dark-500 mt-1">10000 мм = 10 метров</p>
+          </div>
+        </div>
+        <div class="canvas-container mb-4">
+          <canvas id="dxf-canvas" width="800" height="500"></canvas>
+          <div id="markers-container" style="position:absolute;top:0;left:0;pointer-events:none;"></div>
+        </div>
+        <div class="flex flex-wrap gap-3">
+          <button id="autoGridBtn" class="px-5 py-2.5 bg-brand-600 hover:bg-brand-500 text-white rounded-lg font-medium transition-colors">Автосетка</button>
+          <button id="clearStationsBtn" class="px-5 py-2.5 bg-red-600/20 text-red-400 border border-red-600/30 hover:bg-red-600/30 rounded-lg font-medium transition-colors">Очистить станции</button>
+          <span class="text-dark-400 text-sm flex items-center gap-2">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+            Клик — добавить, Shift+Клик — удалить
+          </span>
+        </div>
+      </div>
+
+      <!-- Результат -->
+      <div class="bg-gradient-to-r from-dark-800 to-dark-850 rounded-2xl p-8 border border-dark-700">
+        <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+          <div>
+            <div class="text-dark-400 text-sm mb-1">Примерная стоимость</div>
+            <div class="text-4xl sm:text-5xl font-black text-white" id="totalPrice">0 ₽</div>
+            <div class="text-dark-500 text-sm mt-2" id="calcDetails">Загрузите DXF-файл для расчёта</div>
+          </div>
+          <a href="tel:+79991234567" class="inline-flex items-center gap-2 bg-brand-500 hover:bg-brand-600 text-white px-8 py-4 rounded-xl text-lg font-semibold transition-all card-hover">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z"></path>
+            </svg>
+            Позвонить для заказа
+          </a>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Портфолио -->
+  <section id="portfolio" class="py-20 bg-dark-900">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+      <div class="text-center mb-16">
+        <span class="text-brand-400 font-semibold text-sm uppercase tracking-wider">Наши работы</span>
+        <h2 class="text-3xl sm:text-4xl font-bold text-white mt-2 mb-4">Портфолио проектов</h2>
+        <p class="text-dark-400 max-w-2xl mx-auto">Реализованные проекты по лазерному сканированию</p>
+      </div>
+
+      <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        <!-- Карточка портфолио 1 -->
+        <div class="group relative bg-dark-800 rounded-2xl overflow-hidden border border-dark-700 card-hover">
+          <div class="aspect-video bg-dark-700 flex items-center justify-center">
+            <svg class="w-16 h-16 text-dark-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"></path>
+            </svg>
+          </div>
+          <div class="p-5">
+            <h3 class="font-semibold text-white mb-1">Сканирование исторического здания</h3>
+            <p class="text-dark-400 text-sm">Краснодар, 2025</p>
+          </div>
+        </div>
+
+        <!-- Карточка портфолио 2 -->
+        <div class="group relative bg-dark-800 rounded-2xl overflow-hidden border border-dark-700 card-hover">
+          <div class="aspect-video bg-dark-700 flex items-center justify-center">
+            <svg class="w-16 h-16 text-dark-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"></path>
+            </svg>
+          </div>
+          <div class="p-5">
+            <h3 class="font-semibold text-white mb-1">BIM-модель торгового центра</h3>
+            <p class="text-dark-400 text-sm">Майкоп, 2025</p>
+          </div>
+        </div>
+
+        <!-- Карточка портфолио 3 -->
+        <div class="group relative bg-dark-800 rounded-2xl overflow-hidden border border-dark-700 card-hover">
+          <div class="aspect-video bg-dark-700 flex items-center justify-center">
+            <svg class="w-16 h-16 text-dark-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"></path>
+            </svg>
+          </div>
+          <div class="p-5">
+            <h3 class="font-semibold text-white mb-1">Обмерные чертежи цеха</h3>
+            <p class="text-dark-400 text-sm">Сочи, 2024</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Контакты -->
+  <section id="contacts" class="py-20 bg-dark-950">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+      <div class="text-center mb-16">
+        <span class="text-brand-400 font-semibold text-sm uppercase tracking-wider">Свяжитесь с нами</span>
+        <h2 class="text-3xl sm:text-4xl font-bold text-white mt-2 mb-4">Контакты</h2>
+        <p class="text-dark-400 max-w-2xl mx-auto">Позвоните нам — обсудим ваш проект и подготовим предложение</p>
+      </div>
+
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-8 max-w-4xl mx-auto">
+        <!-- Телефон -->
+        <a href="tel:+79991234567" class="bg-dark-800 rounded-2xl p-8 border border-dark-700 card-hover text-center group">
+          <div class="w-16 h-16 bg-brand-500/10 rounded-2xl flex items-center justify-center mx-auto mb-4 group-hover:bg-brand-500/20 transition-colors">
+            <svg class="w-8 h-8 text-brand-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z"></path>
+            </svg>
+          </div>
+          <h3 class="text-white font-semibold mb-2">Позвонить</h3>
+          <p class="text-dark-400">+7 (999) 123-45-67</p>
+        </a>
+
+        <!-- Email -->
+        <a href="mailto:info@arka-scan.ru" class="bg-dark-800 rounded-2xl p-8 border border-dark-700 card-hover text-center group">
+          <div class="w-16 h-16 bg-brand-500/10 rounded-2xl flex items-center justify-center mx-auto mb-4 group-hover:bg-brand-500/20 transition-colors">
+            <svg class="w-8 h-8 text-brand-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"></path>
+            </svg>
+          </div>
+          <h3 class="text-white font-semibold mb-2">Email</h3>
+          <p class="text-dark-400">info@arka-scan.ru</p>
+        </a>
+
+        <!-- Telegram -->
+        <a href="https://t.me/arka_scan" target="_blank" rel="noopener noreferrer" class="bg-dark-800 rounded-2xl p-8 border border-dark-700 card-hover text-center group">
+          <div class="w-16 h-16 bg-brand-500/10 rounded-2xl flex items-center justify-center mx-auto mb-4 group-hover:bg-brand-500/20 transition-colors">
+            <svg class="w-8 h-8 text-brand-400" fill="currentColor" viewBox="0 0 24 24">
+              <path d="M12 0C5.373 0 0 5.373 0 12s5.373 12 12 12 12-5.373 12-12S18.627 0 12 0zm5.894 8.221l-1.97 9.28c-.145.658-.537.818-1.084.508l-3-2.21-1.446 1.394c-.14.18-.357.295-.6.295-.002 0-.003 0-.005 0l.213-3.054 5.56-5.022c.24-.213-.054-.334-.373-.121l-6.87 4.326-2.96-.924c-.64-.203-.658-.64.135-.954l11.566-4.458c.538-.196 1.006.128.832.94z"/>
+            </svg>
+          </div>
+          <h3 class="text-white font-semibold mb-2">Telegram</h3>
+          <p class="text-dark-400">@arka_scan</p>
+        </a>
+      </div>
+    </div>
+  </section>
+
+  <!-- Подвал -->
+  <footer class="bg-dark-950 border-t border-dark-800 py-8">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+      <div class="flex flex-col md:flex-row items-center justify-between gap-4">
+        <div class="flex items-center gap-2">
+          <div class="w-6 h-6 bg-brand-500 rounded flex items-center justify-center">
+            <svg class="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l5.447-2.724A1 1 0 0021 16.382V5.618a1 1 0 00-.447-.894L15 7m0 10V7"></path>
+            </svg>
+          </div>
+          <span class="text-white font-semibold text-sm">АРКА</span>
+        </div>
+        <p class="text-dark-500 text-sm">© 2026 АРКА. Лазерное 3D-сканирование в Краснодарском крае и Адыгее.</p>
+      </div>
+    </div>
+  </footer>
+
+  <!-- Скрипты -->
+  <script>
+    // ============ Навигация ============
+    const navbar = document.getElementById('navbar');
+    const mobileMenuBtn = document.getElementById('mobileMenuBtn');
+    const mobileMenu = document.getElementById('mobileMenu');
+
+    window.addEventListener('scroll', () => {
+      if (window.scrollY > 50) {
+        navbar.classList.add('bg-dark-900/95', 'backdrop-blur-md', 'border-b', 'border-dark-800');
+      } else {
+        navbar.classList.remove('bg-dark-900/95', 'backdrop-blur-md', 'border-b', 'border-dark-800');
+      }
+    });
+
+    mobileMenuBtn.addEventListener('click', () => {
+      mobileMenu.classList.toggle('hidden');
+    });
+
+    mobileMenu.querySelectorAll('a').forEach(link => {
+      link.addEventListener('click', () => {
+        mobileMenu.classList.add('hidden');
+      });
+    });
+
+    // ============ Загрузка конфигурации ============
+    let config = {
+      pricePerStation: 1500
+    };
+
+    // Пытаемся загрузить config.txt
+    fetch('config.txt')
+      .then(response => {
+        if (response.ok) return response.text();
+        throw new Error('Config not found');
+      })
+      .then(text => {
+        const lines = text.split('\n');
+        lines.forEach(line => {
+          line = line.trim();
+          if (line.startsWith('#') || line === '') return;
+          const parts = line.split('=');
+          if (parts.length === 2) {
+            const key = parts[0].trim();
+            const value = parts[1].trim();
+            if (key === 'pricePerStation') {
+              config.pricePerStation = parseInt(value) || 1500;
+            }
+          }
+        });
+        console.log('Конфигурация загружена:', config);
+        updatePrice();
+      })
+      .catch(() => {
+        console.log('config.txt не найден, используются значения по умолчанию');
+        updatePrice();
+      });
+
+    // ============ Калькулятор ============
+    let stations = [];
+    let canvas = document.getElementById('dxf-canvas');
+    let ctx = canvas.getContext('2d');
+    let markersContainer = document.getElementById('markers-container');
+    let dxfEntities = [];
+    let scale = 1;
+    let offsetX = 0, offsetY = 0;
+    let fileLoaded = false;
+
+    const dxfFileInput = document.getElementById('dxfFileInput');
+    const gridStepInput = document.getElementById('gridStep');
+    const autoGridBtn = document.getElementById('autoGridBtn');
+    const clearStationsBtn = document.getElementById('clearStationsBtn');
+    const totalPriceEl = document.getElementById('totalPrice');
+    const calcDetailsEl = document.getElementById('calcDetails');
+
+    // Загрузка DXF
+    dxfFileInput.addEventListener('change', function(e) {
+      const file = e.target.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = function(ev) {
+        try {
+          const parser = new DxfParser();
+          const dxf = parser.parseSync(ev.target.result);
+          dxfEntities = dxf.entities.filter(e =>
+            e.type === 'LINE' || e.type === 'POLYLINE' ||
+            e.type === 'LWPOLYLINE' || e.type === 'CIRCLE' || e.type === 'ARC'
+          );
+          if (dxfEntities.length === 0) {
+            alert('В DXF не найдено подходящих примитивов (линии, полилинии).');
+            return;
+          }
+
+          let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+          dxfEntities.forEach(entity => {
+            if (entity.vertices) {
+              entity.vertices.forEach(v => {
+                minX = Math.min(minX, v.x); maxX = Math.max(maxX, v.x);
+                minY = Math.min(minY, v.y); maxY = Math.max(maxY, v.y);
+              });
+            }
+            if (entity.type === 'LINE') {
+              minX = Math.min(minX, entity.startPoint.x, entity.endPoint.x);
+              maxX = Math.max(maxX, entity.startPoint.x, entity.endPoint.x);
+              minY = Math.min(minY, entity.startPoint.y, entity.endPoint.y);
+              maxY = Math.max(maxY, entity.startPoint.y, entity.endPoint.y);
+            }
+            if (entity.type === 'CIRCLE' || entity.type === 'ARC') {
+              minX = Math.min(minX, entity.center.x - entity.radius);
+              maxX = Math.max(maxX, entity.center.x + entity.radius);
+              minY = Math.min(minY, entity.center.y - entity.radius);
+              maxY = Math.max(maxY, entity.center.y + entity.radius);
+            }
+          });
+
+          const dxfWidth = maxX - minX || 1;
+          const dxfHeight = maxY - minY || 1;
+          scale = Math.min((canvas.width - 20) / dxfWidth, (canvas.height - 20) / dxfHeight);
+          offsetX = -minX * scale + 10;
+          offsetY = -minY * scale + 10;
+          fileLoaded = true;
+          stations = [];
+          drawAll();
+        } catch (err) {
+          alert('Ошибка парсинга DXF. Убедитесь, что файл корректный и содержит 2D-геометрию.');
+          console.error(err);
+        }
+      };
+      reader.readAsText(file);
+    });
+
+    function drawAll() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      if (dxfEntities.length > 0) {
+        ctx.strokeStyle = '#64748b';
+        ctx.lineWidth = 1.5;
+        dxfEntities.forEach(entity => {
+          ctx.beginPath();
+          if (entity.type === 'LINE') {
+            ctx.moveTo(entity.startPoint.x * scale + offsetX, entity.startPoint.y * scale + offsetY);
+            ctx.lineTo(entity.endPoint.x * scale + offsetX, entity.endPoint.y * scale + offsetY);
+          } else if (entity.type === 'LWPOLYLINE' || entity.type === 'POLYLINE') {
+            if (entity.vertices && entity.vertices.length > 0) {
+              ctx.moveTo(entity.vertices[0].x * scale + offsetX, entity.vertices[0].y * scale + offsetY);
+              for (let i = 1; i < entity.vertices.length; i++) {
+                ctx.lineTo(entity.vertices[i].x * scale + offsetX, entity.vertices[i].y * scale + offsetY);
+              }
+              if (entity.closed) ctx.closePath();
+            }
+          } else if (entity.type === 'CIRCLE') {
+            ctx.arc(entity.center.x * scale + offsetX, entity.center.y * scale + offsetY,
+              entity.radius * scale, 0, 2 * Math.PI);
+          } else if (entity.type === 'ARC') {
+            ctx.arc(entity.center.x * scale + offsetX, entity.center.y * scale + offsetY,
+              entity.radius * scale, entity.startAngle, entity.endAngle);
+          }
+          ctx.stroke();
+        });
+      }
+
+      drawStations();
+      updatePrice();
+      resizeMarkersContainer();
+    }
+
+    function drawStations() {
+      markersContainer.innerHTML = '';
+      stations.forEach((pt, index) => {
+        const marker = document.createElement('div');
+        marker.className = 'station-marker';
+        marker.style.left = pt.x + 'px';
+        marker.style.top = pt.y + 'px';
+        marker.title = 'Станция ' + (index + 1);
+        markersContainer.appendChild(marker);
+      });
+    }
+
+    canvas.addEventListener('click', function(e) {
+      if (!fileLoaded) return;
+      const rect = canvas.getBoundingClientRect();
+      const scaleX = canvas.width / rect.width;
+      const scaleY = canvas.height / rect.height;
+      const mouseX = (e.clientX - rect.left) * scaleX;
+      const mouseY = (e.clientY - rect.top) * scaleY;
+
+      if (e.shiftKey) {
+        const threshold = 15;
+        const idx = stations.findIndex(pt => Math.hypot(pt.x - mouseX, pt.y - mouseY) < threshold);
+        if (idx !== -1) {
+          stations.splice(idx, 1);
+          drawAll();
+        }
+      } else {
+        stations.push({ x: mouseX, y: mouseY });
+        drawAll();
+      }
+    });
+
+    autoGridBtn.addEventListener('click', function() {
+      if (!fileLoaded) {
+        alert('Сначала загрузите DXF-файл');
+        return;
+      }
+      const step = parseFloat(gridStepInput.value) || 10000;
+      if (step <= 0) return;
+      stations = [];
+
+      let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+      dxfEntities.forEach(e => {
+        if (e.vertices) e.vertices.forEach(v => {
+          minX = Math.min(minX, v.x); maxX = Math.max(maxX, v.x);
+          minY = Math.min(minY, v.y); maxY = Math.max(maxY, v.y);
+        });
+        if (e.type === 'LINE') {
+          minX = Math.min(minX, e.startPoint.x, e.endPoint.x);
+          maxX = Math.max(maxX, e.startPoint.x, e.endPoint.x);
+          minY = Math.min(minY, e.startPoint.y, e.endPoint.y);
+          maxY = Math.max(maxY, e.startPoint.y, e.endPoint.y);
+        }
+      });
+
+      const startX = minX + step / 2;
+      const startY = minY + step / 2;
+      for (let x = startX; x <= maxX; x += step) {
+        for (let y = startY; y <= maxY; y += step) {
+          const canvasX = x * scale + offsetX;
+          const canvasY = y * scale + offsetY;
+          stations.push({ x: canvasX, y: canvasY });
+        }
+      }
+      drawAll();
+    });
+
+    clearStationsBtn.addEventListener('click', () => {
+      stations = [];
+      drawAll();
+    });
+
+    function updatePrice() {
+      const count = stations.length;
+      const pricePer = config.pricePerStation;
+      const total = count * pricePer;
+
+      if (count === 0 && !fileLoaded) {
+        totalPriceEl.textContent = '0 ₽';
+        calcDetailsEl.textContent = 'Загрузите DXF-файл для расчёта';
+      } else if (count === 0 && fileLoaded) {
+        totalPriceEl.textContent = '0 ₽';
+        calcDetailsEl.textContent = 'Расставьте станции на плане';
+      } else {
+        totalPriceEl.textContent = total.toLocaleString() + ' ₽';
+        calcDetailsEl.textContent = `${count} станций × ${pricePer.toLocaleString()} ₽`;
+      }
+    }
+
+    function resizeMarkersContainer() {
+      markersContainer.style.width = canvas.clientWidth + 'px';
+      markersContainer.style.height = canvas.clientHeight + 'px';
+    }
+
+    window.addEventListener('resize', resizeMarkersContainer);
+    resizeMarkersContainer();
+
+    updatePrice();
+  </script>
+</body>
+</html>
